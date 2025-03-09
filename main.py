@@ -4,19 +4,20 @@ from langchain.chains import LLMChain
 from langchain.prompts import PromptTemplate
 from langchain.llms import HuggingFacePipeline
 import pdfplumber
+import time
 
-# Use GPT-Neo model instead of LLaMA
-model_name = "EleutherAI/gpt-neo-2.7B"  # Change this line to use GPT-Neo or GPT-J
+# Load the model
+model_name = "EleutherAI/gpt-neo-2.7B"  # Change if using a different open-source model
 tokenizer = AutoTokenizer.from_pretrained(model_name)
 model = AutoModelForCausalLM.from_pretrained(model_name)
 
-# Create the HuggingFace pipeline for text generation
+# Create the Hugging Face pipeline
 hf_pipeline = pipeline("text-generation", model=model, tokenizer=tokenizer, max_new_tokens=200)
 
-# Wrap the Hugging Face pipeline using HuggingFacePipeline from LangChain
+# Wrap the Hugging Face pipeline with LangChain
 llm = HuggingFacePipeline(pipeline=hf_pipeline)
 
-# Define the prompt template and LangChain setup for CV tailoring
+# Define the prompt template
 prompt_template = """
 You are a skilled CV tailor. Based on the following job description and my general CV, tailor my CV to match the job description.
 Job Description:
@@ -25,41 +26,29 @@ Job Description:
 General CV:
 {general_cv}
 
-Please ensure that you highlight my relevant experience, skills, and projects that align with the job role. Ensure the CV reads naturally and is ATS-friendly.
+Ensure that you highlight my relevant experience, skills, and projects. The CV should be ATS-friendly and read naturally.
 """
 
 template = PromptTemplate(input_variables=["job_description", "general_cv"], template=prompt_template)
-
-# Set up LangChain's LLMChain for CV tailoring
 llm_chain = LLMChain(prompt=template, llm=llm)
 
-# Extract text from PDF
+# Function to extract text from a PDF
 def extract_pdf_text(pdf_file):
     with pdfplumber.open(pdf_file) as pdf:
         text = ""
         for page in pdf.pages:
-            text += page.extract_text()
+            text += page.extract_text() or ""  # Avoid NoneType issues
     return text
 
-
-# Function to extract keywords from job description
+# Function to extract keywords using Named Entity Recognition (NER)
 def extract_keywords(job_description):
     nlp = pipeline("ner", model="dbmdz/bert-large-cased-finetuned-conll03-english")
     entities = nlp(job_description)
     
-    # Print the entities to inspect the structure
-    print(entities)  # Debugging line to inspect the structure of entities
+    # Extract words from recognized entities
+    keywords = [entity['word'] for entity in entities if 'entity_group' in entity or 'label' in entity]
     
-    # Check and extract the correct keywords based on the model's output
-    keywords = []
-    for entity in entities:
-        # In some cases, the key might not be 'entity_group', so let's print and inspect
-        if 'entity_group' in entity:
-            keywords.append(entity['word'])
-        elif 'label' in entity:  # Some models may use 'label' instead of 'entity_group'
-            keywords.append(entity['word'])
-    
-    return keywords
+    return list(set(keywords))  # Remove duplicates
 
 # ATS check function
 def ats_check(cv_text, job_description):
@@ -71,36 +60,52 @@ def ats_check(cv_text, job_description):
     else:
         return "CV is ATS-friendly!"
 
-# Streamlit interface
+# Streamlit UI
 def main():
-    st.title("CV Tailoring Tool")
+    st.title("📄 AI-Powered CV Tailoring")
 
-    st.subheader("Upload Your General CV (PDF format)")
+    # File uploader for CV
+    st.subheader("📂 Upload Your General CV (PDF format)")
     uploaded_file = st.file_uploader("Upload PDF", type="pdf")
     
-    st.subheader("Enter Job Description")
-    job_description = st.text_area("Job Description")
+    # Text input for job description
+    st.subheader("📝 Enter Job Description")
+    job_description = st.text_area("Paste the job description here")
 
+    if job_description:
+        # Extract and display keywords
+        with st.spinner("🔍 Extracting keywords..."):
+            keywords = extract_keywords(job_description)
+            time.sleep(1)  # Simulate processing delay
+        print('keyword', keywords)
+        st.success("✅ Keywords extracted successfully!")
+        st.write("**Extracted Keywords:**", ", ".join(keywords))
+
+    # Add a "Tailor CV" button
     if uploaded_file and job_description:
-        # Extract text from uploaded CV
-        general_cv = extract_pdf_text(uploaded_file)
+        if st.button("🎯 Tailor CV"):
+            # Extract text from CV
+            general_cv = extract_pdf_text(uploaded_file)
 
-        # Extract keywords from the job description
-        keywords = extract_keywords(job_description)
-        st.subheader("Job Keywords")
-        print('key words')
-        st.write("Extracted Keywords from Job Description:")
-        st.write(keywords)
+            # Progress bar for CV tailoring
+            progress_bar = st.progress(0)
+            st.write("⏳ Tailoring your CV...")
 
-        # Tailor the CV using LangChain
-        tailored_cv = llm_chain.run({"general_cv": general_cv, "job_description": job_description})
+            for percent_complete in range(1, 101):
+                time.sleep(0.02)  # Simulate processing time
+                progress_bar.progress(percent_complete)
 
-        st.subheader("Tailored CV")
-        st.text_area("Tailored CV", tailored_cv, height=400)
+            # Tailor the CV
+            tailored_cv = llm_chain.run({"general_cv": general_cv, "job_description": job_description})
 
-        # Perform ATS check
-        ats_result = ats_check(tailored_cv, job_description)
-        st.write(f"ATS Check: {ats_result}")
+            st.success("✅ CV tailored successfully!")
+            st.subheader("📜 Tailored CV")
+            st.text_area("Your tailored CV:", tailored_cv, height=400)
+
+            # ATS check
+            ats_result = ats_check(tailored_cv, job_description)
+            st.subheader("📊 ATS Check")
+            st.write(f"📝 {ats_result}")
 
 if __name__ == "__main__":
     main()
