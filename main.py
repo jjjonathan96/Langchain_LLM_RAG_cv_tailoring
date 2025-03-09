@@ -11,7 +11,7 @@ tokenizer = AutoTokenizer.from_pretrained(model_name)
 model = AutoModelForCausalLM.from_pretrained(model_name)
 
 # Create the HuggingFace pipeline for text generation
-hf_pipeline = pipeline("text-generation", model=model, tokenizer=tokenizer)
+hf_pipeline = pipeline("text-generation", model=model, tokenizer=tokenizer, max_new_tokens=200)
 
 # Wrap the Hugging Face pipeline using HuggingFacePipeline from LangChain
 llm = HuggingFacePipeline(pipeline=hf_pipeline)
@@ -41,11 +41,24 @@ def extract_pdf_text(pdf_file):
             text += page.extract_text()
     return text
 
+
 # Function to extract keywords from job description
 def extract_keywords(job_description):
     nlp = pipeline("ner", model="dbmdz/bert-large-cased-finetuned-conll03-english")
     entities = nlp(job_description)
-    keywords = [entity['word'] for entity in entities if entity['entity_group'] in ['MISC', 'ORG', 'LOC']]
+    
+    # Print the entities to inspect the structure
+    print(entities)  # Debugging line to inspect the structure of entities
+    
+    # Check and extract the correct keywords based on the model's output
+    keywords = []
+    for entity in entities:
+        # In some cases, the key might not be 'entity_group', so let's print and inspect
+        if 'entity_group' in entity:
+            keywords.append(entity['word'])
+        elif 'label' in entity:  # Some models may use 'label' instead of 'entity_group'
+            keywords.append(entity['word'])
+    
     return keywords
 
 # ATS check function
@@ -74,6 +87,8 @@ def main():
 
         # Extract keywords from the job description
         keywords = extract_keywords(job_description)
+        st.subheader("Job Keywords")
+        print('key words')
         st.write("Extracted Keywords from Job Description:")
         st.write(keywords)
 
